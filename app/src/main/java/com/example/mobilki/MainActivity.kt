@@ -9,7 +9,10 @@ import androidx.core.view.WindowInsetsCompat
 import android.widget.Button
 import android.widget.TextView
 import android.view.View
-
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 class MainActivity : AppCompatActivity() {
 
     private var firstValue: Double = 0.0
@@ -22,6 +25,12 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         tvDisplay = findViewById(R.id.tvDisplay)
+
+        // Добавляем обработку длинного нажатия для копирования
+        tvDisplay.setOnLongClickListener {
+            copyToClipboard()
+            true // true означает, что событие обработано и обычный клик не сработает
+        }
 
         // Список ID всех цифровых кнопок
         val numericButtons = listOf(
@@ -48,6 +57,25 @@ class MainActivity : AppCompatActivity() {
             currentOperation = null
             isNewOperation = true
         }
+    }
+    private fun copyToClipboard() {
+        val textToCopy = tvDisplay.text.toString()
+
+        // Проверяем, что на экране не "Error" и не пусто
+        if (textToCopy == "Error" || textToCopy.isEmpty()) {
+            Toast.makeText(this, "Нечего копировать", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Получаем доступ к системному сервису буфера обмена
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("Calculator Result", textToCopy)
+
+        // Помещаем данные в буфер
+        clipboard.setPrimaryClip(clip)
+
+        // Уведомляем пользователя (User Experience!)
+        Toast.makeText(this, "Результат скопирован: $textToCopy", Toast.LENGTH_SHORT).show()
     }
     private fun onPlusMinusClick() {
         val currentText = tvDisplay.text.toString()
