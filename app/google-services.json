@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "49338655324",
+    "project_id": "my-mobile-calculator",
+    "storage_bucket": "my-mobile-calculator.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:49338655324:android:b6ca8b904428984390fc99",
+        "android_client_info": {
+          "package_name": "com.example.mobilki"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAxnqVk5bFoQXa1i3zTt0LDzjGLpu5U4Tw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

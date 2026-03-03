@@ -13,6 +13,12 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import com.google.firebase.analytics.FirebaseAnalytics
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.remoteconfig.FirebaseRemoteConfig
+import com.google.firebase.remoteconfig.remoteConfigSettings
+import android.graphics.Color
+import android.os.Build
 class MainActivity : AppCompatActivity() {
 
     private var firstValue: Double = 0.0
@@ -25,6 +31,8 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         tvDisplay = findViewById(R.id.tvDisplay)
+
+        FirebaseAnalytics.getInstance(this)
 
         // Добавляем обработку длинного нажатия для копирования
         tvDisplay.setOnLongClickListener {
@@ -57,6 +65,70 @@ class MainActivity : AppCompatActivity() {
             currentOperation = null
             isNewOperation = true
         }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+        }
+
+        fetchRemoteTheme()
+    }
+
+    private fun fetchRemoteTheme() {
+        val remoteConfig = FirebaseRemoteConfig.getInstance()
+        val configSettings = remoteConfigSettings {
+            minimumFetchIntervalInSeconds = 0
+        }
+        remoteConfig.setConfigSettingsAsync(configSettings)
+
+        remoteConfig.fetchAndActivate().addOnCompleteListener { task ->
+            if (task.isSuccessful) {
+                val colorHex = remoteConfig.getString("status_bar_color")
+                if (colorHex.isNotEmpty()) {
+                    // Используем runOnUiThread, чтобы точно попасть в поток отрисовки
+                    runOnUiThread {
+                        try {
+                            val color = Color.parseColor(colorHex)
+                            window.apply {
+                                // Чистим все мешающие флаги
+                                clearFlags(android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
+                                addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+                                // Устанавливаем цвет
+                                statusBarColor = color
+                            }
+
+                            // Настройка иконок через современный контроллер
+                            val controller = androidx.core.view.WindowInsetsControllerCompat(window, window.decorView)
+                            controller.isAppearanceLightStatusBars = false // false для белых иконок на темном фоне
+
+                            Toast.makeText(this, "Облако: $colorHex", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(this, "Ошибка цвета: $colorHex", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun saveOperationToCloud(operation: String, result: String) {
+        val db = FirebaseFirestore.getInstance()
+
+        // Создаем объект данных
+        val historyItem = hashMapOf(
+            "expression" to operation,
+            "result" to result,
+            "timestamp" to com.google.firebase.Timestamp.now()
+        )
+
+        // Сохраняем в коллекцию "history"
+        db.collection("history")
+            .add(historyItem)
+            .addOnSuccessListener {
+                // Можно добавить лог, что успешно сохранено
+            }
+            .addOnFailureListener { e ->
+                // Ошибка сохранения
+            }
     }
     private fun copyToClipboard() {
         val textToCopy = tvDisplay.text.toString()
@@ -137,8 +209,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Убираем ".0" если число целое
-        tvDisplay.text = if (result % 1 == 0.0) result.toInt().toString() else result.toString()
+        val finalResult = if (result % 1 == 0.0) result.toInt().toString() else result.toString()
+        tvDisplay.text = finalResult
         isNewOperation = true
+
+        val expression = "$firstValue $currentOperation $secondValue"
+        saveOperationToCloud(expression, finalResult)
     }
 
 
