@@ -19,6 +19,10 @@ import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.google.firebase.remoteconfig.remoteConfigSettings
 import android.graphics.Color
 import android.os.Build
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKeys
 class MainActivity : AppCompatActivity() {
 
     private var firstValue: Double = 0.0
@@ -29,6 +33,9 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        val mainLayout = findViewById<View>(R.id.mainLayout)
+        mainLayout.visibility = View.GONE // Скрываем калькулятор до авторизации
 
         tvDisplay = findViewById(R.id.tvDisplay)
 
@@ -65,14 +72,108 @@ class MainActivity : AppCompatActivity() {
             currentOperation = null
             isNewOperation = true
         }
+        findViewById<Button>(R.id.btnAC).setOnLongClickListener {
+            showSetupPassKeyDialog { newPin ->
+                savePassKey(newPin)
+                Toast.makeText(this, "Код изменен", Toast.LENGTH_SHORT).show()
+            }
+            true
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
         }
 
         fetchRemoteTheme()
+
+        val passKey = getPassKey()
+        if (passKey == null) {
+            // Шаг 3: Инициализация (Первый запуск)
+            showSetupPassKeyDialog { newPin ->
+                savePassKey(newPin)
+                mainLayout.visibility = View.VISIBLE
+            }
+        } else {
+            // Шаг 4: Проверка существующего ключа
+            showBiometricPrompt {
+                mainLayout.visibility = View.VISIBLE
+            }
+        }
     }
 
+    private fun getSecurePrefs() = EncryptedSharedPreferences.create(
+        "secure_prefs",
+        MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
+        this,
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+    )
+
+    private fun savePassKey(pin: String) {
+        getSecurePrefs().edit().putString("pass_key", pin).apply()
+    }
+
+    private fun getPassKey(): String? {
+        return getSecurePrefs().getString("pass_key", null)
+    }
+
+    private fun showSetupPassKeyDialog(onSuccess: (String) -> Unit) {
+        val input = android.widget.EditText(this)
+        input.inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Установка Pass Key")
+            .setMessage("Придумайте цифровой код доступа")
+            .setView(input)
+            .setCancelable(false)
+            .setPositiveButton("Сохранить") { _, _ ->
+                val pin = input.text.toString()
+                if (pin.length >= 4) onSuccess(pin)
+                else Toast.makeText(this, "Минимум 4 цифры", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+
+    private fun showBiometricPrompt(onSuccess: () -> Unit) {
+        val executor = ContextCompat.getMainExecutor(this)
+        val biometricPrompt = BiometricPrompt(this, executor,
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    super.onAuthenticationSucceeded(result)
+                    runOnUiThread { onSuccess() }
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    super.onAuthenticationError(errorCode, errString)
+                    // Если биометрия отклонена (например, нет пальца), просим PIN
+                    showLoginPinDialog(onSuccess)
+                }
+            })
+
+        val promptInfo = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Вход")
+            .setNegativeButtonText("Использовать PIN")
+            .build()
+
+        biometricPrompt.authenticate(promptInfo)
+    }
+    private fun showLoginPinDialog(onSuccess: () -> Unit) {
+        val input = android.widget.EditText(this)
+        input.inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Введите Pass Key")
+            .setView(input)
+            .setCancelable(false)
+            .setPositiveButton("Войти") { _, _ ->
+                if (input.text.toString() == getPassKey()) onSuccess()
+                else {
+                    Toast.makeText(this, "Неверный код!", Toast.LENGTH_SHORT).show()
+                    showLoginPinDialog(onSuccess) // Рекурсия при ошибке
+                }
+            }
+            .show()
+    }
     private fun fetchRemoteTheme() {
         val remoteConfig = FirebaseRemoteConfig.getInstance()
         val configSettings = remoteConfigSettings {
